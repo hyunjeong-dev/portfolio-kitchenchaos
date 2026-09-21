@@ -47,6 +47,7 @@ public sealed partial class KitchenGameContext : MonoBehaviour
     public int NextStageLevel => _stageLevel + 1;
     public bool HasNextStage => GameData.Instance.GetStageInfoDataByLevel(NextStageLevel) != null;
     public StageInfoData CurrentStageData => GameData.Instance.GetStageInfoDataByLevel(_stageLevel);
+    public KitchenStageResultData StageResult { get; private set; }
 
     [SerializeField] int _stageLevel = DEFAULT_STAGE_LEVEL;
     [SerializeField] GameObject _gameUIPrefab;
@@ -147,6 +148,7 @@ public sealed partial class KitchenGameContext : MonoBehaviour
         }
 
         _stateMachine = new(KitchenGameState.WaitingToStart);
+        StageResult = default;
 
         PreBuildModules();
         await PrepareModulesAsync(cancellationToken);
@@ -187,6 +189,7 @@ public sealed partial class KitchenGameContext : MonoBehaviour
         _pauseModule = null;
         _inputModule = null;
         _stateMachine = null;
+        StageResult = default;
 
         if (Instance == this)
         {
@@ -235,24 +238,32 @@ public sealed partial class KitchenGameContext : MonoBehaviour
         var previousState = CurrentState;
         if (_stateMachine != null && _stateMachine.GameOver())
         {
-            SaveStageResult();
+            var hasStageResult = TryFinalizeStageResult();
             Events.InvokeStateChanged(previousState, CurrentState);
+
+            if (hasStageResult)
+            {
+                Events.InvokeStageResultFinalized(StageResult);
+            }
         }
     }
 
-    void SaveStageResult()
+    bool TryFinalizeStageResult()
     {
         var deliveryModule = GetModule<KitchenDeliveryModule>();
         var gameReportData = deliveryModule != null ? deliveryModule.GameReportData : null;
         if (gameReportData == null)
         {
-            return;
+            Debug.LogError("[KitchenGameContext] Stage result could not be finalized.");
+            return false;
         }
 
+        StageResult = new KitchenStageResultData(StageLevel, gameReportData);
         SaveDataManager.Instance.RecordStageResult(
-            StageLevel,
-            gameReportData.IsGoalAchieved,
-            gameReportData.CurrentScore);
+            StageResult.StageLevel,
+            StageResult.IsGoalAchieved,
+            StageResult.FinalScore);
+        return true;
     }
 
     void ResetState()

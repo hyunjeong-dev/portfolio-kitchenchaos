@@ -6,6 +6,7 @@ public sealed class KitchenInputModuleEvents
     public event Action OnInteractAlternate;
     public event Action OnDash;
     public event Action OnPause;
+    public event Action OnInputReset;
     public event Action<KitchenTouchCommand> OnTouchCommand;
 
     public void InvokeInteract()
@@ -31,5 +32,10 @@ public sealed class KitchenInputModuleEvents
     public void InvokeTouchCommand(KitchenTouchCommand command)
     {
         OnTouchCommand?.Invoke(command);
+    }
+
+    public void InvokeInputReset()
+    {
+        OnInputReset?.Invoke();
     }
 }

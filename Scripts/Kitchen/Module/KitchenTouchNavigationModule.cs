@@ -24,7 +24,6 @@ public sealed class KitchenTouchNavigationModule : KitchenGameModule
     KitchenTouchCommand _pendingCommand;
     BaseCounter _pendingTouchCounter;
     Camera _mainCamera;
-    Vector2 _currentMoveInput;
     int _touchPathIndex;
     TouchNavigationStatus _status;
 
@@ -55,8 +54,15 @@ public sealed class KitchenTouchNavigationModule : KitchenGameModule
     public Vector2 GetMoveInput(Vector3 playerPosition, float maxMoveDistance)
     {
         BuildPendingPathIfNeeded(playerPosition);
-        UpdateTouchMoveInput(playerPosition, maxMoveDistance);
-        return _currentMoveInput;
+        AdvanceReachedWaypoints(playerPosition);
+        if (_status != TouchNavigationStatus.Moving || maxMoveDistance <= 0f)
+        {
+            return Vector2.zero;
+        }
+
+        var moveDir = _touchPath[_touchPathIndex] - playerPosition;
+        var input = new Vector2(moveDir.x, moveDir.z);
+        return Vector2.ClampMagnitude(input / maxMoveDistance, 1f);
     }
 
     public bool TryConsumeAction(
@@ -67,6 +73,8 @@ public sealed class KitchenTouchNavigationModule : KitchenGameModule
         counter = null;
         actionType = KitchenTouchActionType.Move;
 
+        // 이동 후 도착 확인에서는 다음 프레임의 이동 입력을 생성하지 않는다.
+        AdvanceReachedWaypoints(playerPosition);
         if (_status != TouchNavigationStatus.ActionReady)
         {
             return false;
@@ -83,7 +91,6 @@ public sealed class KitchenTouchNavigationModule : KitchenGameModule
     {
         _touchPath.Clear();
         _touchPathIndex = 0;
-        _currentMoveInput = Vector2.zero;
         _pendingCommand = default;
         _pendingTouchCounter = null;
         _status = TouchNavigationStatus.None;
@@ -137,10 +144,8 @@ public sealed class KitchenTouchNavigationModule : KitchenGameModule
         _status = TouchNavigationStatus.Moving;
     }
 
-    void UpdateTouchMoveInput(Vector3 playerPosition, float maxMoveDistance)
+    void AdvanceReachedWaypoints(Vector3 playerPosition)
     {
-        _currentMoveInput = Vector2.zero;
-
         if (_status != TouchNavigationStatus.Moving)
         {
             return;
@@ -152,16 +157,8 @@ public sealed class KitchenTouchNavigationModule : KitchenGameModule
             var moveDir = waypoint - playerPosition;
             moveDir.y = 0f;
 
-            var remainingDistance = moveDir.magnitude;
-            if (remainingDistance > TOUCH_WAYPOINT_ARRIVAL_DISTANCE)
+            if (moveDir.sqrMagnitude > TOUCH_WAYPOINT_ARRIVAL_DISTANCE * TOUCH_WAYPOINT_ARRIVAL_DISTANCE)
             {
-                moveDir /= remainingDistance;
-                if (maxMoveDistance > 0f && remainingDistance < maxMoveDistance)
-                {
-                    moveDir *= remainingDistance / maxMoveDistance;
-                }
-
-                _currentMoveInput = new Vector2(moveDir.x, moveDir.z);
                 return;
             }
 

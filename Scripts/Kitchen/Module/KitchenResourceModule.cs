@@ -10,6 +10,9 @@ public sealed class KitchenResourceModule : KitchenGameModule
     public const string ASSET_SCOPE_NAME = nameof(KitchenResourceModule);
 
     const string DELIVERY_RESULT_UI_PREFAB_ADDRESS = "Kitchen/Prefab/UI/DeliveryResultUI";
+    const string LEADERBOARD_UI_PREFAB_ADDRESS = "Kitchen/Prefab/UI/UILeaderboard";
+    const string LEADERBOARD_CELL_UI_PREFAB_ADDRESS =
+        "Kitchen/Prefab/UI/UILeaderboardCell";
 
     static readonly ToolPrefabAddressEntry[] ToolPrefabAddresses =
     {
@@ -34,6 +37,12 @@ public sealed class KitchenResourceModule : KitchenGameModule
             _preloadPrefabAddresses,
             _preloadIconAddresses,
             DELIVERY_RESULT_UI_PREFAB_ADDRESS);
+        KitchenCollectionLogic.AddUniqueAddress(
+            _preloadPrefabAddresses,
+            LEADERBOARD_UI_PREFAB_ADDRESS);
+        KitchenCollectionLogic.AddUniqueAddress(
+            _preloadPrefabAddresses,
+            LEADERBOARD_CELL_UI_PREFAB_ADDRESS);
 
         await _plateVisualAddressRegistry.BuildAsync(Context.CurrentStageData, cancellationToken);
         _plateVisualAddressRegistry.AddPrefabAddressesTo(_preloadPrefabAddresses);
@@ -65,6 +74,11 @@ public sealed class KitchenResourceModule : KitchenGameModule
     public GameObject LoadDeliveryResultUIPrefab()
     {
         return LoadPrefab(DELIVERY_RESULT_UI_PREFAB_ADDRESS);
+    }
+
+    public GameObject LoadLeaderboardUIPrefab()
+    {
+        return LoadPrefab(LEADERBOARD_UI_PREFAB_ADDRESS);
     }
 
     public GameObject LoadToolPrefab(ActionType actionType)

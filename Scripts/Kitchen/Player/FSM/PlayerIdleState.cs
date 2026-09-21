@@ -14,6 +14,7 @@ public sealed class PlayerIdleState : State<PlayerBehaviour>
         if (Owner.HasMoveInput)
         {
             Owner.Fsm.ActivateState<PlayerMoveState>();
+            Owner.Move(Owner.MoveDirection, deltaTime);
         }
     }
 }

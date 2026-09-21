@@ -4,6 +4,7 @@ using UnityEngine.InputSystem;
 public sealed partial class KitchenInputModule : KitchenGameModule
 {
     public KitchenInputModuleEvents Events { get; } = new();
+    public Vector2 MoveInput { get; private set; }
 
     int _lastPauseFrame = -1;
 
@@ -21,12 +22,39 @@ public sealed partial class KitchenInputModule : KitchenGameModule
         GamepadPause
     }
 
+    public override void OnBegin()
+    {
+        base.OnBegin();
+        InputSystem.onDeviceChange += OnDeviceChanged;
+        Application.focusChanged += OnFocusChanged;
+        Context.OnGamePaused += ResetInput;
+        Context.OnStateChanged += OnStateChanged;
+    }
+
+    public override void OnEnd()
+    {
+        InputSystem.onDeviceChange -= OnDeviceChanged;
+        Application.focusChanged -= OnFocusChanged;
+        Context.OnGamePaused -= ResetInput;
+        Context.OnStateChanged -= OnStateChanged;
+        ResetInput();
+        base.OnEnd();
+    }
+
     public override void OnUpdate()
     {
         base.OnUpdate();
 
+        if (!Application.isFocused)
+        {
+            MoveInput = Vector2.zero;
+            return;
+        }
+
         var keyboard = Keyboard.current;
         var gamepad = Gamepad.current;
+        var input = KitchenInputLogic.GetKeyboardMoveInput(keyboard);
+        MoveInput = input != Vector2.zero ? input : KitchenInputLogic.GetGamepadMoveInput(gamepad);
 
         if (KitchenInputLogic.IsInteractPressed(keyboard, gamepad))
         {
@@ -48,24 +76,46 @@ public sealed partial class KitchenInputModule : KitchenGameModule
             InvokePauseOncePerFrame();
         }
 
-        UpdateTouchInput();
+        if (Context.IsPlayable)
+        {
+            UpdateTouchInput();
+        }
+        else
+        {
+            ResetTouchPress();
+        }
     }
 
-    public Vector2 GetMoveInputNormalized()
+    void OnDeviceChanged(InputDevice device, InputDeviceChange change)
     {
-        var inputVector = KitchenInputLogic.GetKeyboardMoveInput(Keyboard.current);
-        if (inputVector != Vector2.zero)
+        if (device is Keyboard or Gamepad or Mouse or Touchscreen &&
+            change is InputDeviceChange.Removed or InputDeviceChange.Disconnected or InputDeviceChange.Disabled)
         {
-            return inputVector.normalized;
+            ResetInput();
         }
+    }
 
-        inputVector = KitchenInputLogic.GetGamepadMoveInput(Gamepad.current);
-        if (inputVector != Vector2.zero)
+    void OnFocusChanged(bool hasFocus)
+    {
+        if (!hasFocus)
         {
-            return inputVector.normalized;
+            ResetInput();
         }
+    }
 
-        return Vector2.zero;
+    void OnStateChanged(KitchenGameStateChangedEvent stateChangedEvent)
+    {
+        if (!Context.IsPlayable)
+        {
+            ResetInput();
+        }
+    }
+
+    void ResetInput()
+    {
+        MoveInput = Vector2.zero;
+        ResetTouchPress();
+        Events.InvokeInputReset();
     }
 
     public string GetBindingText(Binding binding)

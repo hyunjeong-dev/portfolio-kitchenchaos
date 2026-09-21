@@ -9,6 +9,7 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
     const float PLAYER_RADIUS = .6f;
     const float PLAYER_HEIGHT = 2f;
     const float ROTATE_SPEED = 10f;
+    const float ROTATION_SNAP_ANGLE = 0.1f;
     const int MOVE_CAST_HIT_CAPACITY = 16;
     const int FOOTSTEP_SOUND_INTERVAL_MILLISECONDS = 100;
     const string FLOOR_COLLIDER_NAME = "Floor";
@@ -20,10 +21,12 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
     public float DashSpeed => dashSpeed;
     public float DashDuration => dashDuration;
     public Vector3 DashDirection => dashDirection;
-    public bool HasMoveInput => GetMoveInput() != Vector2.zero;
+    public bool HasMoveInput => _moveInput != Vector2.zero;
     public bool CanDash => Fsm != null && dashCooldownTimer <= 0f && !Fsm.IsActivateState<PlayerDashState>();
     public bool IsWalking => isWalking;
     public BaseCounter SelectedCounter => _selectorModule.CurrentCounter;
+    public Vector3 Forward => transform.forward;
+    public Vector3 MoveDirection => new(_moveInput.x, 0f, _moveInput.y);
 
     [SerializeField] float moveSpeed = 7f;
     [SerializeField] float dashSpeed = 18f;
@@ -34,11 +37,11 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
 
     bool isWalking;
     readonly RaycastHit[] _moveCastHits = new RaycastHit[MOVE_CAST_HIT_CAPACITY];
-    Vector3 lastInteractDir;
+    Vector3 _targetFacingDirection;
     Vector3 dashDirection;
     float dashCooldownTimer;
     IHoldable _currentHoldable;
-    Func<Vector2> _moveInputResolver;
+    Vector2 _moveInput;
     SelectorModule _selectorModule;
     CancellationTokenSource _soundCancellationTokenSource;
 
@@ -64,11 +67,10 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
         }
     }
 
-    public void Initialize(Func<Vector2> moveInputResolver, KitchenGameContext context)
+    public void Initialize(KitchenGameContext context)
     {
-        _moveInputResolver = moveInputResolver;
         _selectorModule = context.GetModule<SelectorModule>();
-        lastInteractDir = transform.forward;
+        _targetFacingDirection = Forward;
 
         InitFsm();
         Fsm.ActivateState<PlayerIdleState>();
@@ -82,7 +84,7 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
         Fsm?.DestroyAllState();
         Fsm = null;
 
-        _moveInputResolver = null;
+        _moveInput = Vector2.zero;
         isWalking = false;
         dashDirection = Vector3.zero;
         dashCooldownTimer = 0f;
@@ -109,11 +111,17 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
         }
     }
 
-    public void OnUpdate(float deltaTime)
+    public void OnUpdate(float deltaTime, Vector2 moveInput, bool requestDash)
     {
+        _moveInput = Vector2.ClampMagnitude(moveInput, 1f);
         TickDashCooldown(deltaTime);
+        if (requestDash)
+        {
+            RequestDash();
+        }
+
         Fsm?.Update(deltaTime);
-        RefreshInteractionTarget();
+        UpdateFacing(deltaTime);
     }
 
     public void FocusCounter(BaseCounter counter)
@@ -128,17 +136,26 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
 
         if (interactDir.sqrMagnitude > 0.0001f)
         {
-            lastInteractDir = interactDir.normalized;
-            transform.forward = lastInteractDir;
+            _targetFacingDirection = interactDir.normalized;
         }
 
-        SetSelectedCounter(counter);
+        CompleteFacing();
     }
 
-    public Vector3 GetMoveDirection()
+    public void CompleteFacing()
     {
-        Vector2 inputVector = GetMoveInput();
-        return new(inputVector.x, 0f, inputVector.y);
+        transform.rotation = Quaternion.LookRotation(_targetFacingDirection, Vector3.up);
+    }
+
+    void UpdateFacing(float deltaTime)
+    {
+        var targetRotation = Quaternion.LookRotation(_targetFacingDirection, Vector3.up);
+        // Touch의 보간감을 유지하면서 프레임률과 무관하게 yaw 회전을 완료한다.
+        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, 1f - Mathf.Exp(-ROTATE_SPEED * deltaTime));
+        if (Quaternion.Angle(transform.rotation, targetRotation) <= ROTATION_SNAP_ANGLE)
+        {
+            transform.rotation = targetRotation;
+        }
     }
 
     public void SetWalking(bool isWalking)
@@ -149,8 +166,10 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
     public void Stop()
     {
         isWalking = false;
+        _moveInput = Vector2.zero;
+        _targetFacingDirection = Forward;
         dashDirection = Vector3.zero;
-        SetSelectedCounter(null);
+        _selectorModule.ReleaseCounter();
 
         if (Fsm != null && !Fsm.IsActivateState<PlayerIdleState>())
         {
@@ -171,14 +190,16 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
             return;
         }
 
+        var requestedDirection = moveDir.normalized;
+        var inputMagnitude = moveDir.magnitude;
         var moveDistance = speed * deltaTime;
         var canMove = CanMove(moveDir, moveDistance);
 
         if (!canMove)
         {
             Vector3 moveDirX = new(moveDir.x, 0, 0);
-            moveDirX.Normalize();
-            if (moveDir.x < -.5f || moveDir.x > +.5f)
+            moveDirX = moveDirX.normalized * inputMagnitude;
+            if (Mathf.Abs(requestedDirection.x) > .5f)
             {
                 canMove = CanMove(moveDirX, moveDistance);
             }
@@ -194,8 +215,8 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
             else
             {
                 Vector3 moveDirZ = new(0, 0, moveDir.z);
-                moveDirZ.Normalize();
-                if (moveDir.z < -.5f || moveDir.z > +.5f)
+                moveDirZ = moveDirZ.normalized * inputMagnitude;
+                if (Mathf.Abs(requestedDirection.z) > .5f)
                 {
                     canMove = CanMove(moveDirZ, moveDistance);
                 }
@@ -216,12 +237,9 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
             transform.position += moveDir * moveDistance;
         }
 
-        isWalking = canMove && moveDir != Vector3.zero;
-
-        if (isWalking)
-        {
-            transform.forward = Vector3.Slerp(transform.forward, moveDir, deltaTime * ROTATE_SPEED);
-        }
+        isWalking = canMove && moveDistance > 0f;
+        // 막혀도 입력 방향으로 제자리 회전하며, 미끄러지면 실제 이동 방향을 따른다.
+        _targetFacingDirection = canMove ? moveDir.normalized : requestedDirection;
     }
 
     bool CanMove(Vector3 moveDir, float moveDistance)
@@ -278,15 +296,10 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
             return;
         }
 
-        var moveDir = GetMoveDirection();
+        var moveDir = MoveDirection;
         if (moveDir == Vector3.zero)
         {
-            moveDir = lastInteractDir;
-        }
-
-        if (moveDir == Vector3.zero)
-        {
-            moveDir = transform.forward;
+            moveDir = Forward;
         }
 
         dashDirection = moveDir.normalized;
@@ -294,38 +307,9 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
         Fsm.ActivateState<PlayerDashState>(true);
     }
 
-    void RefreshInteractionTarget()
+    public void RefreshInteractionTarget()
     {
-        Vector3 moveDir = GetMoveDirection();
-
-        if (moveDir != Vector3.zero)
-        {
-            lastInteractDir = moveDir;
-        }
-
-        if (Physics.Raycast(transform.position, lastInteractDir, out RaycastHit raycastHit, INTERACT_DISTANCE, countersLayerMask))
-        {
-            if (raycastHit.transform.TryGetComponent(out BaseCounter baseCounter))
-            {
-                if (baseCounter != SelectedCounter)
-                {
-                    SetSelectedCounter(baseCounter);
-                }
-            }
-            else
-            {
-                SetSelectedCounter(null);
-            }
-        }
-        else
-        {
-            SetSelectedCounter(null);
-        }
-    }
-
-    Vector2 GetMoveInput()
-    {
-        return _moveInputResolver != null ? _moveInputResolver.Invoke() : Vector2.zero;
+        _selectorModule.RefreshCounter(transform.position, Forward, INTERACT_DISTANCE, countersLayerMask);
     }
 
     void InitFsm()
@@ -346,11 +330,6 @@ public class PlayerBehaviour : MonoBehaviour, IHolder
         }
 
         dashCooldownTimer = Mathf.Max(0f, dashCooldownTimer - deltaTime);
-    }
-
-    void SetSelectedCounter(BaseCounter selectedCounter)
-    {
-        _selectorModule.SelectCounter(selectedCounter);
     }
 
     void StartSoundLoop()

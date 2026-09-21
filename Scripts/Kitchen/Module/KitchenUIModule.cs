@@ -11,6 +11,7 @@ public sealed class KitchenUIModule : KitchenGameModule
     [ModuleRef] KitchenInputModule _inputModule;
 
     GameObject _gameUIInstance;
+    GameObject _leaderboardUIInstance;
     UIGameResult _gameResultUI;
     UIGamePause _gamePauseUI;
     UIGameTimer _gameTimerUI;
@@ -32,6 +33,7 @@ public sealed class KitchenUIModule : KitchenGameModule
 
     public override UniTask PrepareAsync(CancellationToken cancellationToken)
     {
+        CreateLeaderboardUI();
         ApplyPreloadedUIState();
 
         return UniTask.CompletedTask;
@@ -98,6 +100,8 @@ public sealed class KitchenUIModule : KitchenGameModule
             _gameUIInstance = null;
         }
 
+        _leaderboardUIInstance = null;
+
         base.OnUnregister();
     }
 
@@ -136,6 +140,35 @@ public sealed class KitchenUIModule : KitchenGameModule
         _gameHudUI = _gameUIInstance.GetComponentInChildren<UIGameHud>(true);
     }
 
+    void CreateLeaderboardUI()
+    {
+        if (_gameResultUI == null || _leaderboardUIInstance != null)
+        {
+            return;
+        }
+
+        var leaderboardUIPrefab = _resourceModule.LoadLeaderboardUIPrefab();
+        if (leaderboardUIPrefab == null)
+        {
+            Debug.LogError("[KitchenUIModule] UILeaderboard prefab load failed.");
+            return;
+        }
+
+        _leaderboardUIInstance = Object.Instantiate(
+            leaderboardUIPrefab,
+            _gameResultUI.transform,
+            false);
+        _leaderboardUIInstance.name = leaderboardUIPrefab.name;
+        var leaderboardUI = _leaderboardUIInstance.GetComponent<UILeaderboard>();
+        if (leaderboardUI == null)
+        {
+            Debug.LogError("[KitchenUIModule] UILeaderboard component is not found.");
+            return;
+        }
+
+        _gameResultUI.SetLeaderboardView(leaderboardUI);
+    }
+
     void CacheDeliveryCounters()
     {
         _deliveryCounters = Context.GetComponentsInChildren<DeliveryCounter>(true);
@@ -155,6 +188,7 @@ public sealed class KitchenUIModule : KitchenGameModule
         _optionsUI = null;
         _recipeListUI = null;
         _gameHudUI = null;
+        _leaderboardUIInstance = null;
         _deliveryCounters = null;
     }
 

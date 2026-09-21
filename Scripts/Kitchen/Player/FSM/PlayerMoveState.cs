@@ -6,7 +6,7 @@ public sealed class PlayerMoveState : State<PlayerBehaviour>
     {
         base.OnUpdate(deltaTime);
 
-        Vector3 moveDir = Owner.GetMoveDirection();
+        Vector3 moveDir = Owner.MoveDirection;
         if (moveDir == Vector3.zero)
         {
             Owner.Fsm.ActivateState<PlayerIdleState>();

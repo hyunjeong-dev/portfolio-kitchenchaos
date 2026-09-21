@@ -24,6 +24,12 @@ public sealed partial class KitchenInputModule
             var screenPosition = touch.position.ReadValue();
             var pointerId = touch.touchId.ReadValue();
 
+            if (touch.phase.ReadValue() == UnityEngine.InputSystem.TouchPhase.Canceled)
+            {
+                ResetTouchPress();
+                return;
+            }
+
             if (touch.press.wasPressedThisFrame)
             {
                 BeginTouchPress(screenPosition, pointerId);
@@ -32,14 +38,24 @@ public sealed partial class KitchenInputModule
             if (touch.press.wasReleasedThisFrame)
             {
                 EndTouchPress(screenPosition, pointerId);
+                return;
             }
 
-            return;
+            if (touch.press.isPressed || touch.press.wasPressedThisFrame)
+            {
+                return;
+            }
+        }
+
+        if (_isTouchPressed && _touchPointerId >= 0)
+        {
+            ResetTouchPress();
         }
 
         var mouse = Mouse.current;
         if (mouse == null)
         {
+            ResetTouchPress();
             return;
         }
 

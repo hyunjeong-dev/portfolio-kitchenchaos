@@ -14,6 +14,7 @@ public sealed partial class KitchenGameContext
         AddModule<KitchenTimerModule>();
         AddModule<KitchenPauseModule>();
         AddModule<KitchenDeliveryModule>();
+        AddModule<KitchenPlatformProgressionModule>();
         AddModule<KitchenResourceModule>();
         AddModule<KitchenPlateModule>();
         AddModule<IngredientPoolModule>();

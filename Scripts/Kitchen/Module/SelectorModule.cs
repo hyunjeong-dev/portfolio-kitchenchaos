@@ -1,7 +1,20 @@
+using UnityEngine;
+
 public sealed class SelectorModule : KitchenGameModule
 {
     public SelectorModuleEvents Events { get; } = new();
     public BaseCounter CurrentCounter { get; private set; }
+
+    public void RefreshCounter(Vector3 position, Vector3 forward, float distance, LayerMask layerMask)
+    {
+        BaseCounter counter = null;
+        if (Physics.Raycast(position, forward, out var hit, distance, layerMask, QueryTriggerInteraction.Ignore))
+        {
+            counter = hit.collider.GetComponentInParent<BaseCounter>();
+        }
+
+        SelectCounter(counter);
+    }
 
     public void SelectCounter(BaseCounter counter)
     {

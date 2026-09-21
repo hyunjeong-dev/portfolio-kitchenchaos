@@ -25,10 +25,9 @@ public static class HoldableTransferLogic
         holder.Attach(holdable);
 
         var transform = holdable.Transform;
-        var worldRotation = transform.rotation;
         transform.SetParent(holder.HoldPoint, false);
         transform.localPosition = Vector3.zero;
-        transform.rotation = worldRotation;
+        transform.localRotation = Quaternion.identity;
         return true;
     }
 }

@@ -3,8 +3,6 @@ using UnityEngine.InputSystem;
 
 public static class KitchenInputLogic
 {
-    const float GAMEPAD_STICK_DEADZONE = 0.5f;
-
     public static Vector2 GetKeyboardMoveInput(Keyboard keyboard)
     {
         if (keyboard == null)
@@ -44,8 +42,8 @@ public static class KitchenInputLogic
             return Vector2.zero;
         }
 
-        var inputVector = gamepad.leftStick.ReadValue();
-        return inputVector.sqrMagnitude >= GAMEPAD_STICK_DEADZONE * GAMEPAD_STICK_DEADZONE ? inputVector : Vector2.zero;
+        // Input System의 StickDeadzone 처리 결과와 아날로그 크기를 그대로 사용한다.
+        return gamepad.leftStick.ReadValue();
     }
 
     public static bool IsInteractPressed(Keyboard keyboard, Gamepad gamepad)

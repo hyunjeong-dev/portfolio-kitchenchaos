@@ -1,0 +1,22 @@
+{
+    "name": "Game.Platform.Steam",
+    "rootNamespace": "Game.Infrastructure.Platform.Steam",
+    "references": [
+        "Game.Platform",
+        "GUID:f51ebe6a0ceec4240a699833d6309b23",
+        "com.rlabrecque.steamworks.net"
+    ],
+    "includePlatforms": [
+        "Editor",
+        "macOSStandalone",
+        "WindowsStandalone64"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

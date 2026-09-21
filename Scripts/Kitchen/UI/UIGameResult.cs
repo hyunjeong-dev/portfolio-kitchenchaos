@@ -1,6 +1,9 @@
+using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
+using Game.Common.Platform;
 using TMPro;
 using UnityEngine;
+using static Generated.GameData;
 
 public sealed class UIGameResult : MonoBehaviour
 {
@@ -18,8 +21,15 @@ public sealed class UIGameResult : MonoBehaviour
     [SerializeField] PButton nextButton;
     [SerializeField] PButton retryButton;
     [SerializeField] PButton mainMenuButton;
+    [SerializeField] PButton leaderboardButton;
+    [SerializeField] UILeaderboard leaderboardView;
+
+    readonly List<StageInfoData> _stageInfoDataList = new();
+    readonly List<int> _leaderboardStageLevels = new();
 
     KitchenGameContext _context;
+    IPlatformService _platformService;
+    int _resultStageLevel;
     int _nextStageLevel;
     bool _hasNextStage;
     bool _isClickLocked;
@@ -40,6 +50,20 @@ public sealed class UIGameResult : MonoBehaviour
         {
             mainMenuButton.OnClick = OnClick;
         }
+
+        if (leaderboardButton != null)
+        {
+            leaderboardButton.OnClick = OnClick;
+        }
+
+        BindPlatformService();
+        InitializeLeaderboardView();
+        RefreshLeaderboardButton();
+    }
+
+    public void SetLeaderboardView(UILeaderboard value)
+    {
+        leaderboardView = value;
     }
 
     public void Uninitialize()
@@ -59,7 +83,16 @@ public sealed class UIGameResult : MonoBehaviour
             mainMenuButton.OnClick = null;
         }
 
+        if (leaderboardButton != null)
+        {
+            leaderboardButton.OnClick = null;
+        }
+
+        UnbindPlatformService();
+        leaderboardView?.Uninitialize();
+
         _context = null;
+        _resultStageLevel = 0;
         _nextStageLevel = 0;
         _hasNextStage = false;
         _isClickLocked = false;
@@ -73,29 +106,30 @@ public sealed class UIGameResult : MonoBehaviour
         }
 
         _context = context;
+        if (BindPlatformService())
+        {
+            InitializeLeaderboardView();
+        }
 
-        var deliveryModule = context.GetModule<KitchenDeliveryModule>();
-        if (deliveryModule == null) return;
+        var stageResult = context.StageResult;
+        if (!stageResult.IsValid)
+        {
+            Debug.LogError("[UIGameResult] Finalized stage result is not available.");
+            return;
+        }
 
-        var gameReportData = deliveryModule.GameReportData;
-        var currentScore = gameReportData.CurrentScore;
-        var successfulMenuCount = gameReportData.SuccessfulMenuCount;
-        var successfulScore = gameReportData.SuccessfulScore;
-        var failedOrderCount = gameReportData.FailedDeliveryCount + gameReportData.ExpiredMenuCount;
-        var failedScore = gameReportData.FailedScore;
-
-        var isSuccess = gameReportData.IsGoalAchieved;
-        titleText.SetText(isSuccess ? "스테이지 {0} 성공!" : "스테이지 {0} 실패!", context.StageLevel);
+        var isSuccess = stageResult.IsGoalAchieved;
+        _resultStageLevel = stageResult.StageLevel;
+        titleText.SetText(isSuccess ? "스테이지 {0} 성공!" : "스테이지 {0} 실패!", stageResult.StageLevel);
         titleText.color = isSuccess ? new Color(0.55f, 1f, 0.23f, 1f) : new Color(1f, 0.32f, 0.24f, 1f);
-        deliveredLabelText.SetText("배달된 주문 x {0}", successfulMenuCount);
-        deliveredAmountText.SetText("{0}", successfulScore);
-        failedLabelText.SetText("실패한 주문 x {0}", failedOrderCount);
-        failedAmountText.SetText("{0}", failedScore);
+        deliveredLabelText.SetText("배달된 주문 x {0}", stageResult.SuccessfulMenuCount);
+        deliveredAmountText.SetText("{0}", stageResult.SuccessfulScore);
+        failedLabelText.SetText("실패한 주문 x {0}", stageResult.FailedOrderCount);
+        failedAmountText.SetText("{0}", stageResult.FailedScore);
         totalLabelText.SetText("합계");
-        totalAmountText.SetText("{0}", currentScore);
+        totalAmountText.SetText("{0}", stageResult.FinalScore);
 
-        var grade = StageLogic.GetStageGrade(context.StageLevel, currentScore);
-        SetLevelStar(grade);
+        SetLevelStar(stageResult.Grade);
 
         _isClickLocked = false;
         SetButtonsInteractable(true);
@@ -144,10 +178,27 @@ public sealed class UIGameResult : MonoBehaviour
             LockButtons();
             GoToMainMenu();
         }
+
+        else if (target == leaderboardButton)
+        {
+            OpenLeaderboard(_resultStageLevel);
+        }
+    }
+
+    public void OpenLeaderboard(int stageLevel)
+    {
+        if (leaderboardView == null || stageLevel <= 0)
+        {
+            return;
+        }
+
+        if (root != null) root.SetActive(false);
+        leaderboardView.Open(stageLevel);
     }
 
     public void Hide()
     {
+        leaderboardView?.Close(false);
         SetActive(false);
     }
     
@@ -182,6 +233,11 @@ public sealed class UIGameResult : MonoBehaviour
         if (mainMenuButton != null)
         {
             mainMenuButton.interactable = value;
+        }
+
+        if (leaderboardButton != null)
+        {
+            RefreshLeaderboardButton(value);
         }
     }
 
@@ -244,5 +300,100 @@ public sealed class UIGameResult : MonoBehaviour
         }
 
         sceneChangeManager.SwitchGameScene(stageLevel, forceReload).Forget(Debug.LogException);
+    }
+
+    void InitializeLeaderboardView()
+    {
+        if (leaderboardView == null)
+        {
+            return;
+        }
+
+        _stageInfoDataList.Clear();
+        _leaderboardStageLevels.Clear();
+        if (GameData.Instance != null)
+        {
+            GameData.Instance.CollectStageInfoData(_stageInfoDataList);
+            for (var i = 0; i < _stageInfoDataList.Count; i++)
+            {
+                var stageLevel = _stageInfoDataList[i].Level;
+                if (stageLevel > 0)
+                {
+                    _leaderboardStageLevels.Add(stageLevel);
+                }
+            }
+        }
+
+        var leaderboardService = _platformService != null
+            ? _platformService.Leaderboards
+            : new UnavailablePlatformLeaderboardService("Platform manager is unavailable.");
+        var currentUserName = _platformService != null
+            ? _platformService.User.CurrentUser.DisplayName
+            : string.Empty;
+        leaderboardView.Initialize(
+            leaderboardService,
+            _leaderboardStageLevels,
+            currentUserName,
+            OnLeaderboardClosed);
+    }
+
+    bool BindPlatformService()
+    {
+        var platformManager = PlatformManager.Instance;
+        var platformService = platformManager != null ? platformManager.Service : null;
+        if (ReferenceEquals(_platformService, platformService))
+        {
+            return false;
+        }
+
+        UnbindPlatformService();
+        _platformService = platformService;
+        if (_platformService != null)
+        {
+            _platformService.OnStateChanged += OnPlatformStateChanged;
+        }
+
+        return true;
+    }
+
+    void UnbindPlatformService()
+    {
+        if (_platformService != null)
+        {
+            _platformService.OnStateChanged -= OnPlatformStateChanged;
+            _platformService = null;
+        }
+    }
+
+    void OnPlatformStateChanged(PlatformState state)
+    {
+        if (state != PlatformState.Ready &&
+            leaderboardView != null &&
+            leaderboardView.State != UILeaderboardState.Closed)
+        {
+            leaderboardView.Close();
+        }
+
+        RefreshLeaderboardButton();
+    }
+
+    void RefreshLeaderboardButton(bool allowInteraction = true)
+    {
+        if (leaderboardButton == null)
+        {
+            return;
+        }
+
+        var platformManager = PlatformManager.Instance;
+        var isAvailable = leaderboardView != null &&
+                          platformManager != null &&
+                          platformManager.IsLeaderboardAvailable;
+        leaderboardButton.gameObject.SetActive(isAvailable);
+        leaderboardButton.interactable = allowInteraction && !_isClickLocked && isAvailable;
+    }
+
+    void OnLeaderboardClosed()
+    {
+        if (root != null) root.SetActive(true);
     }
 }
